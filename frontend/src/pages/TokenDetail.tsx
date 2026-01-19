@@ -73,11 +73,66 @@ export function TokenDetail() {
 
   const { token, stats, holder_deltas, holder_breakdowns, pnl } = analysis;
 
+  // Safe accessors with defaults
+  const totalHolders = holder_breakdowns?.total_holders ?? 0;
+  const dayChange = holder_deltas?.day_1 ?? 0;
+  const hhi = stats?.hhi ?? 0;
+  const gini = stats?.gini ?? 0;
+  const whaleCount = holder_breakdowns?.categories?.whale ?? 0;
+  const tokenName = token?.name || token?.symbol || 'Unknown Token';
+  const tokenTicker = token?.ticker || token?.symbol || '???';
+  const tokenSupply = token?.supply ?? token?.total_supply ?? 0;
+  const tokenDecimals = token?.decimals ?? 0;
+
   const formatNumber = (n: number, decimals = 2) => {
     if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(decimals)}B`;
     if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(decimals)}M`;
     if (n >= 1_000) return `${(n / 1_000).toFixed(decimals)}K`;
     return n.toFixed(decimals);
+  };
+
+  const safeParseSupply = () => {
+    try {
+      const supply = typeof tokenSupply === 'string' ? parseInt(tokenSupply) : Number(tokenSupply);
+      const divisor = Math.pow(10, tokenDecimals);
+      return formatNumber(supply / divisor);
+    } catch {
+      return 'N/A';
+    }
+  };
+
+  // Default categories if missing
+  const categories = holder_breakdowns?.categories ?? {
+    whale: 0,
+    dolphin: 0,
+    fish: 0,
+    crab: 0,
+    shrimp: 0,
+  };
+
+  // Default deltas if missing
+  const deltas = {
+    hour_1: holder_deltas?.hour_1 ?? 0,
+    hours_2: holder_deltas?.hours_2 ?? 0,
+    hours_4: holder_deltas?.hours_4 ?? 0,
+    hours_12: holder_deltas?.hours_12 ?? 0,
+    day_1: holder_deltas?.day_1 ?? 0,
+    days_3: holder_deltas?.days_3 ?? 0,
+    days_7: holder_deltas?.days_7 ?? 0,
+    days_14: holder_deltas?.days_14 ?? 0,
+    days_30: holder_deltas?.days_30 ?? 0,
+  };
+
+  // Default breakdowns if missing
+  const breakdowns = {
+    total_holders: holder_breakdowns?.total_holders ?? 0,
+    holders_over_10_usd: holder_breakdowns?.holders_over_10_usd ?? 0,
+    holders_over_100_usd: holder_breakdowns?.holders_over_100_usd ?? 0,
+    holders_over_1000_usd: holder_breakdowns?.holders_over_1000_usd ?? 0,
+    holders_over_10000_usd: holder_breakdowns?.holders_over_10000_usd ?? 0,
+    holders_over_100k_usd: holder_breakdowns?.holders_over_100k_usd ?? 0,
+    holders_over_1m_usd: holder_breakdowns?.holders_over_1m_usd ?? 0,
+    categories,
   };
 
   return (
@@ -92,12 +147,12 @@ export function TokenDetail() {
         </button>
         <div className="flex items-center gap-4">
           <div>
-            <h1 className="text-3xl font-bold">{token.name}</h1>
+            <h1 className="text-3xl font-bold">{tokenName}</h1>
             <div className="flex items-center gap-2 text-gray-400">
-              <span className="text-purple-400 font-semibold">${token.ticker}</span>
+              <span className="text-purple-400 font-semibold">${tokenTicker}</span>
               <span>•</span>
               <span className="font-mono text-sm">
-                {token.address.slice(0, 8)}...{token.address.slice(-8)}
+                {token?.address ? `${token.address.slice(0, 8)}...${token.address.slice(-8)}` : address}
               </span>
             </div>
           </div>
@@ -108,30 +163,30 @@ export function TokenDetail() {
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-6">
         <StatCard
           label="Total Holders"
-          value={formatNumber(holder_breakdowns.total_holders, 0)}
+          value={formatNumber(totalHolders, 0)}
         />
         <StatCard
           label="24h Change"
-          value={holder_deltas.day_1 >= 0 ? `+${holder_deltas.day_1}` : holder_deltas.day_1.toString()}
-          trend={holder_deltas.day_1 > 0 ? 'up' : holder_deltas.day_1 < 0 ? 'down' : 'neutral'}
+          value={dayChange >= 0 ? `+${dayChange}` : dayChange.toString()}
+          trend={dayChange > 0 ? 'up' : dayChange < 0 ? 'down' : 'neutral'}
         />
         <StatCard
           label="HHI Index"
-          value={stats.hhi.toFixed(4)}
-          subValue={stats.hhi < 0.01 ? 'Highly Distributed' : stats.hhi < 0.1 ? 'Moderate' : 'Concentrated'}
+          value={hhi.toFixed(4)}
+          subValue={hhi < 0.01 ? 'Highly Distributed' : hhi < 0.1 ? 'Moderate' : 'Concentrated'}
         />
         <StatCard
           label="Gini Coefficient"
-          value={stats.gini.toFixed(4)}
-          subValue={stats.gini < 0.5 ? 'Equal' : stats.gini < 0.8 ? 'Moderate' : 'Unequal'}
+          value={gini.toFixed(4)}
+          subValue={gini < 0.5 ? 'Equal' : gini < 0.8 ? 'Moderate' : 'Unequal'}
         />
         <StatCard
           label="Whales"
-          value={holder_breakdowns.categories.whale.toLocaleString()}
+          value={whaleCount.toLocaleString()}
         />
         <StatCard
           label="Supply"
-          value={formatNumber(parseInt(token.supply) / Math.pow(10, token.decimals))}
+          value={safeParseSupply()}
         />
       </div>
 
@@ -144,25 +199,25 @@ export function TokenDetail() {
           />
           <StatCard
             label="Total Realized PnL"
-            value={`$${formatNumber(pnl.realized_pnl_total)}`}
-            trend={pnl.realized_pnl_total >= 0 ? 'up' : 'down'}
+            value={`$${formatNumber(pnl.realized_pnl_total ?? 0)}`}
+            trend={(pnl.realized_pnl_total ?? 0) >= 0 ? 'up' : 'down'}
           />
           <StatCard
             label="Total Unrealized PnL"
-            value={`$${formatNumber(pnl.unrealized_pnl_total)}`}
-            trend={pnl.unrealized_pnl_total >= 0 ? 'up' : 'down'}
+            value={`$${formatNumber(pnl.unrealized_pnl_total ?? 0)}`}
+            trend={(pnl.unrealized_pnl_total ?? 0) >= 0 ? 'up' : 'down'}
           />
         </div>
       )}
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        <HolderDeltasChart deltas={holder_deltas} />
-        <HolderDistributionChart categories={holder_breakdowns.categories} />
+        <HolderDeltasChart deltas={deltas} />
+        <HolderDistributionChart categories={categories} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        <ValueBreakdownChart breakdowns={holder_breakdowns} />
+        <ValueBreakdownChart breakdowns={breakdowns} />
         {holders && (
           <TopHoldersTable
             holders={holders.holders}
@@ -193,7 +248,7 @@ export function TokenDetail() {
               <WalletAnalysisCard
                 stats={walletStats}
                 walletAddress={selectedWallet}
-                tokenTicker={token.ticker}
+                tokenTicker={tokenTicker}
               />
             ) : (
               <div className="text-center py-8 text-red-400">
