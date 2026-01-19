@@ -3,9 +3,11 @@ export interface Token {
   address: string;
   name: string;
   ticker: string;
+  symbol?: string;
   network: string;
   decimals: number;
-  supply: string;
+  supply: string | number;
+  total_supply?: string | number;
 }
 
 export interface TokenStats {

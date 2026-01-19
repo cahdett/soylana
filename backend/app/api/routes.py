@@ -1,8 +1,9 @@
-from fastapi import APIRouter, HTTPException, Query
-from typing import Optional
+from fastapi import APIRouter, HTTPException, Query, Body
+from typing import Optional, List
 import logging
-from ..clients import HolderScanClient
+from ..clients import HolderScanClient, SolscanClient
 from ..clients.holderscan import HolderScanError
+from ..clients.solscan import SolscanError
 from ..config import get_settings
 
 # Set up logging
@@ -276,6 +277,196 @@ async def get_wallet_stats(token_address: str, wallet_address: str):
         raise HTTPException(status_code=e.status_code or 500, detail=str(e))
     except Exception as e:
         logger.error(f"Unexpected error for wallet {wallet_address}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        await client.close()
+
+
+# ==================== Cross-Checker Endpoints ====================
+
+
+def get_solscan_client() -> Optional[SolscanClient]:
+    """Get Solscan client instance if API key is configured."""
+    settings = get_settings()
+    if not settings.solscan_api_key:
+        return None
+    return SolscanClient(
+        api_key=settings.solscan_api_key,
+        base_url=settings.solscan_base_url,
+    )
+
+
+@router.post("/cross-checker")
+async def cross_check_wallets(
+    token_addresses: List[str] = Body(..., description="List of token addresses to cross-check"),
+    min_usd_value: Optional[float] = Body(None, description="Minimum USD value held across all tokens"),
+    max_holders_per_token: int = Body(1000, description="Max holders to fetch per token (higher = slower but more complete)"),
+):
+    """
+    Find wallets that hold ALL of the specified tokens.
+
+    This endpoint fetches holders for each token and finds the intersection -
+    wallets that appear in every token's holder list.
+
+    Args:
+        token_addresses: List of token contract addresses (2-10 tokens)
+        min_usd_value: Optional minimum USD value filter
+        max_holders_per_token: Maximum holders to fetch per token (default 1000)
+
+    Returns:
+        List of common wallets with their holdings for each token
+    """
+    # Validate input
+    if len(token_addresses) < 2:
+        raise HTTPException(status_code=400, detail="At least 2 token addresses are required")
+    if len(token_addresses) > 10:
+        raise HTTPException(status_code=400, detail="Maximum 10 tokens allowed per cross-check")
+
+    # Remove duplicates while preserving order
+    token_addresses = list(dict.fromkeys(token_addresses))
+
+    client = get_client()
+
+    try:
+        logger.info(f"Cross-checking {len(token_addresses)} tokens")
+
+        # Store token info and holders for each token
+        token_data = {}
+        all_holder_sets = []
+
+        # Fetch holders for each token
+        for token_address in token_addresses:
+            logger.info(f"Fetching holders for token: {token_address}")
+
+            # Get token info first
+            try:
+                token_info = await client.get_token(token_address)
+                token_name = token_info.name or token_info.symbol or token_address[:8]
+                token_decimals = token_info.decimals or 0
+            except Exception as e:
+                logger.warning(f"Could not get token info for {token_address}: {e}")
+                token_name = token_address[:8]
+                token_decimals = 0
+
+            # Fetch holders (paginate to get more)
+            all_holders = {}
+            offset = 0
+            batch_size = 100
+
+            while offset < max_holders_per_token:
+                try:
+                    holder_response = await client.get_holders(
+                        token_address,
+                        limit=batch_size,
+                        offset=offset,
+                    )
+
+                    if not holder_response.holders:
+                        break
+
+                    for holder in holder_response.holders:
+                        all_holders[holder.address] = {
+                            "amount": holder.amount or 0,
+                            "rank": holder.rank or 0,
+                        }
+
+                    offset += batch_size
+
+                    # Stop if we got fewer than requested (no more data)
+                    if len(holder_response.holders) < batch_size:
+                        break
+
+                except Exception as e:
+                    logger.warning(f"Error fetching holders at offset {offset}: {e}")
+                    break
+
+            logger.info(f"Found {len(all_holders)} holders for {token_name}")
+
+            token_data[token_address] = {
+                "name": token_name,
+                "decimals": token_decimals,
+                "holders": all_holders,
+                "total_holders_fetched": len(all_holders),
+            }
+
+            all_holder_sets.append(set(all_holders.keys()))
+
+        # Find intersection of all holder sets
+        if not all_holder_sets:
+            return {
+                "common_wallets": [],
+                "tokens": token_data,
+                "total_common": 0,
+            }
+
+        common_wallets = all_holder_sets[0]
+        for holder_set in all_holder_sets[1:]:
+            common_wallets = common_wallets.intersection(holder_set)
+
+        logger.info(f"Found {len(common_wallets)} wallets holding all {len(token_addresses)} tokens")
+
+        # Build result with holdings for each wallet
+        result_wallets = []
+
+        for wallet_address in common_wallets:
+            wallet_holdings = {}
+            total_value = 0  # We don't have price data yet, but structure supports it
+
+            for token_address, data in token_data.items():
+                holder_info = data["holders"].get(wallet_address, {})
+                amount = holder_info.get("amount", 0)
+                decimals = data["decimals"]
+
+                # Adjust for decimals
+                adjusted_amount = amount / (10 ** decimals) if decimals > 0 else amount
+
+                wallet_holdings[token_address] = {
+                    "token_name": data["name"],
+                    "raw_amount": amount,
+                    "adjusted_amount": adjusted_amount,
+                    "rank": holder_info.get("rank", 0),
+                }
+
+            result_wallets.append({
+                "wallet_address": wallet_address,
+                "holdings": wallet_holdings,
+                "tokens_held": len(wallet_holdings),
+            })
+
+        # Sort by average rank (lower is better - means bigger holder)
+        def avg_rank(wallet):
+            ranks = [h["rank"] for h in wallet["holdings"].values() if h["rank"] > 0]
+            return sum(ranks) / len(ranks) if ranks else float("inf")
+
+        result_wallets.sort(key=avg_rank)
+
+        # Build token summary
+        token_summary = []
+        for addr in token_addresses:
+            data = token_data[addr]
+            token_summary.append({
+                "address": addr,
+                "name": data["name"],
+                "decimals": data["decimals"],
+                "holders_fetched": data["total_holders_fetched"],
+            })
+
+        return {
+            "common_wallets": result_wallets,
+            "tokens": token_summary,
+            "total_common": len(result_wallets),
+            "query": {
+                "token_count": len(token_addresses),
+                "max_holders_per_token": max_holders_per_token,
+                "min_usd_value": min_usd_value,
+            },
+        }
+
+    except HolderScanError as e:
+        logger.error(f"HolderScan error in cross-checker: {e}")
+        raise HTTPException(status_code=e.status_code or 500, detail=str(e))
+    except Exception as e:
+        logger.error(f"Unexpected error in cross-checker: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         await client.close()
