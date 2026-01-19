@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Dashboard, TokenDetail } from './pages';
+import { Dashboard, TokenDetail, CrossChecker } from './pages';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -18,6 +18,7 @@ function App() {
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/token/:address" element={<TokenDetail />} />
+          <Route path="/cross-checker" element={<CrossChecker />} />
         </Routes>
       </BrowserRouter>
     </QueryClientProvider>

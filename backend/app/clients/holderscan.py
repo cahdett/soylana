@@ -270,7 +270,15 @@ class HolderScanClient:
             "GET", f"/{chain}/tokens/{token_address}/stats/{wallet_address}"
         )
 
-        holding_breakdown = HoldingBreakdown(**data.get("holding_breakdown", {}))
+        # Handle case where holding_breakdown is None or missing
+        holding_breakdown_data = data.get("holding_breakdown")
+        if holding_breakdown_data is None:
+            holding_breakdown = HoldingBreakdown(
+                diamond=0, gold=0, silver=0, bronze=0, wood=0
+            )
+        else:
+            holding_breakdown = HoldingBreakdown(**holding_breakdown_data)
+
         return WalletStats(
             amount=data.get("amount", 0),
             holder_category=data.get("holder_category", "unknown"),

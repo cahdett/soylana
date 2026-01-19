@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+from typing import Optional
 
 
 class Settings(BaseSettings):
@@ -8,6 +9,10 @@ class Settings(BaseSettings):
     # HolderScan API
     holderscan_api_key: str
     holderscan_base_url: str = "https://api.holderscan.com/v0"
+
+    # Solscan API
+    solscan_api_key: Optional[str] = None
+    solscan_base_url: str = "https://pro-api.solscan.io/v2.0"
 
     # Server
     api_host: str = "0.0.0.0"
