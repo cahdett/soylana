@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Union
 
 
 class Token(BaseModel):
@@ -12,8 +12,8 @@ class Token(BaseModel):
     network: Optional[str] = None
     chain: Optional[str] = None  # API might use 'chain' instead of 'network'
     decimals: Optional[int] = None
-    supply: Optional[str] = None
-    total_supply: Optional[str] = None  # API might use 'total_supply'
+    supply: Optional[Union[str, int, float]] = None  # Can be string or number
+    total_supply: Optional[Union[str, int, float]] = None  # Can be string or number
 
     class Config:
         extra = "allow"
