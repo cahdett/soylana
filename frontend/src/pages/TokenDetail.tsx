@@ -221,6 +221,8 @@ export function TokenDetail() {
         {holders && (
           <TopHoldersTable
             holders={holders.holders}
+            totalSupply={typeof tokenSupply === 'string' ? parseInt(tokenSupply) : Number(tokenSupply)}
+            decimals={tokenDecimals}
             onWalletClick={(addr) => setSelectedWallet(addr)}
           />
         )}
