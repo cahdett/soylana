@@ -1,8 +1,13 @@
 from fastapi import APIRouter, HTTPException, Query
 from typing import Optional
+import logging
 from ..clients import HolderScanClient
 from ..clients.holderscan import HolderScanError
 from ..config import get_settings
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["tokens"])
 
@@ -30,7 +35,11 @@ async def list_tokens(
         total, tokens = await client.list_tokens(chain="sol", limit=limit, offset=offset)
         return {"total": total, "tokens": [t.model_dump() for t in tokens]}
     except HolderScanError as e:
+        logger.error(f"HolderScan error: {e}")
         raise HTTPException(status_code=e.status_code or 500, detail=str(e))
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         await client.close()
 
@@ -43,7 +52,11 @@ async def get_token(token_address: str):
         token = await client.get_token(token_address)
         return token.model_dump()
     except HolderScanError as e:
+        logger.error(f"HolderScan error for token {token_address}: {e}")
         raise HTTPException(status_code=e.status_code or 500, detail=str(e))
+    except Exception as e:
+        logger.error(f"Unexpected error for token {token_address}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         await client.close()
 
@@ -56,7 +69,11 @@ async def get_token_stats(token_address: str):
         stats = await client.get_token_stats(token_address)
         return stats.model_dump()
     except HolderScanError as e:
+        logger.error(f"HolderScan error for stats {token_address}: {e}")
         raise HTTPException(status_code=e.status_code or 500, detail=str(e))
+    except Exception as e:
+        logger.error(f"Unexpected error for stats {token_address}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         await client.close()
 
@@ -69,7 +86,11 @@ async def get_token_pnl(token_address: str):
         pnl = await client.get_token_pnl(token_address)
         return pnl.model_dump()
     except HolderScanError as e:
+        logger.error(f"HolderScan error for pnl {token_address}: {e}")
         raise HTTPException(status_code=e.status_code or 500, detail=str(e))
+    except Exception as e:
+        logger.error(f"Unexpected error for pnl {token_address}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         await client.close()
 
@@ -82,7 +103,11 @@ async def get_wallet_categories(token_address: str):
         categories = await client.get_wallet_categories(token_address)
         return categories.model_dump()
     except HolderScanError as e:
+        logger.error(f"HolderScan error for wallet-categories {token_address}: {e}")
         raise HTTPException(status_code=e.status_code or 500, detail=str(e))
+    except Exception as e:
+        logger.error(f"Unexpected error for wallet-categories {token_address}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         await client.close()
 
@@ -95,7 +120,11 @@ async def get_supply_breakdown(token_address: str):
         breakdown = await client.get_supply_breakdown(token_address)
         return breakdown.model_dump()
     except HolderScanError as e:
+        logger.error(f"HolderScan error for supply-breakdown {token_address}: {e}")
         raise HTTPException(status_code=e.status_code or 500, detail=str(e))
+    except Exception as e:
+        logger.error(f"Unexpected error for supply-breakdown {token_address}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         await client.close()
 
@@ -108,32 +137,44 @@ async def get_full_token_analysis(token_address: str):
     """
     client = get_client()
     try:
-        # Fetch all data in parallel-ish manner
+        logger.info(f"Fetching analysis for token: {token_address}")
+
+        # Fetch all data
         token = await client.get_token(token_address)
+        logger.info(f"Got token data")
+
         stats = await client.get_token_stats(token_address)
+        logger.info(f"Got stats data")
+
         holder_deltas = await client.get_holder_deltas(token_address)
+        logger.info(f"Got holder deltas")
+
         holder_breakdowns = await client.get_holder_breakdowns(token_address)
+        logger.info(f"Got holder breakdowns")
 
         # Try to get PnL data (might not be available for all tokens)
+        pnl_data = None
         try:
             pnl = await client.get_token_pnl(token_address)
             pnl_data = pnl.model_dump()
-        except HolderScanError:
-            pnl_data = None
+        except Exception as e:
+            logger.info(f"PnL data not available: {e}")
 
         # Try to get wallet categories
+        wallet_cats_data = None
         try:
             wallet_cats = await client.get_wallet_categories(token_address)
             wallet_cats_data = wallet_cats.model_dump()
-        except HolderScanError:
-            wallet_cats_data = None
+        except Exception as e:
+            logger.info(f"Wallet categories not available: {e}")
 
         # Try to get supply breakdown
+        supply_data = None
         try:
             supply = await client.get_supply_breakdown(token_address)
             supply_data = supply.model_dump()
-        except HolderScanError:
-            supply_data = None
+        except Exception as e:
+            logger.info(f"Supply breakdown not available: {e}")
 
         return {
             "token": token.model_dump(),
@@ -145,7 +186,11 @@ async def get_full_token_analysis(token_address: str):
             "supply_breakdown": supply_data,
         }
     except HolderScanError as e:
+        logger.error(f"HolderScan error for analysis {token_address}: {e}")
         raise HTTPException(status_code=e.status_code or 500, detail=str(e))
+    except Exception as e:
+        logger.error(f"Unexpected error for analysis {token_address}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         await client.close()
 
@@ -173,7 +218,11 @@ async def get_holders(
         )
         return holders.model_dump()
     except HolderScanError as e:
+        logger.error(f"HolderScan error for holders {token_address}: {e}")
         raise HTTPException(status_code=e.status_code or 500, detail=str(e))
+    except Exception as e:
+        logger.error(f"Unexpected error for holders {token_address}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         await client.close()
 
@@ -186,7 +235,11 @@ async def get_holder_deltas(token_address: str):
         deltas = await client.get_holder_deltas(token_address)
         return deltas.model_dump()
     except HolderScanError as e:
+        logger.error(f"HolderScan error for deltas {token_address}: {e}")
         raise HTTPException(status_code=e.status_code or 500, detail=str(e))
+    except Exception as e:
+        logger.error(f"Unexpected error for deltas {token_address}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         await client.close()
 
@@ -199,7 +252,11 @@ async def get_holder_breakdowns(token_address: str):
         breakdowns = await client.get_holder_breakdowns(token_address)
         return breakdowns.model_dump()
     except HolderScanError as e:
+        logger.error(f"HolderScan error for breakdowns {token_address}: {e}")
         raise HTTPException(status_code=e.status_code or 500, detail=str(e))
+    except Exception as e:
+        logger.error(f"Unexpected error for breakdowns {token_address}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         await client.close()
 
@@ -215,7 +272,11 @@ async def get_wallet_stats(token_address: str, wallet_address: str):
         stats = await client.get_wallet_stats(token_address, wallet_address)
         return stats.model_dump()
     except HolderScanError as e:
+        logger.error(f"HolderScan error for wallet {wallet_address}: {e}")
         raise HTTPException(status_code=e.status_code or 500, detail=str(e))
+    except Exception as e:
+        logger.error(f"Unexpected error for wallet {wallet_address}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         await client.close()
 
