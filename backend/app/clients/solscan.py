@@ -1,6 +1,10 @@
 import httpx
-from typing import Optional
+import asyncio
+import logging
+from typing import Optional, List, Set
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 
 class SolscanError(Exception):
@@ -20,6 +24,9 @@ class TokenTransfer(BaseModel):
     to_address: Optional[str] = None
     amount: Optional[float] = None
     token_address: Optional[str] = None
+    # Additional fields from Solscan
+    trans_id: Optional[str] = None
+    time: Optional[int] = None
 
     class Config:
         extra = "allow"
@@ -106,6 +113,10 @@ class SolscanClient:
         token_address: str,
         page: int = 1,
         page_size: int = 100,
+        from_time: Optional[int] = None,
+        to_time: Optional[int] = None,
+        sort_by: str = "block_time",
+        sort_order: str = "desc",
     ) -> dict:
         """
         Get token transfer history.
@@ -114,20 +125,93 @@ class SolscanClient:
             token_address: Token mint address
             page: Page number
             page_size: Results per page
+            from_time: Start timestamp (Unix seconds)
+            to_time: End timestamp (Unix seconds)
+            sort_by: Field to sort by
+            sort_order: Sort order (asc/desc)
 
         Returns:
             Transfer history
         """
+        params = {
+            "address": token_address,
+            "page": page,
+            "page_size": min(page_size, 100),
+            "sort_by": sort_by,
+            "sort_order": sort_order,
+        }
+        if from_time is not None:
+            params["block_time[]"] = from_time
+        if to_time is not None:
+            params["block_time[]="] = to_time
+
         data = await self._request(
             "GET",
             "/token/transfer",
-            params={
-                "address": token_address,
-                "page": page,
-                "page_size": min(page_size, 100),
-            },
+            params=params,
         )
         return data
+
+    async def get_all_token_traders(
+        self,
+        token_address: str,
+        from_time: Optional[int] = None,
+        to_time: Optional[int] = None,
+        max_pages: int = 50,
+    ) -> Set[str]:
+        """
+        Get all unique wallet addresses that have traded a token within a timeframe.
+
+        Args:
+            token_address: Token mint address
+            from_time: Start timestamp (Unix seconds)
+            to_time: End timestamp (Unix seconds)
+            max_pages: Maximum pages to fetch (100 transfers per page)
+
+        Returns:
+            Set of unique wallet addresses that traded the token
+        """
+        traders: Set[str] = set()
+        page = 1
+
+        while page <= max_pages:
+            try:
+                data = await self.get_token_transfers(
+                    token_address=token_address,
+                    page=page,
+                    page_size=100,
+                    from_time=from_time,
+                    to_time=to_time,
+                )
+
+                transfers = data.get("data", [])
+                if not transfers:
+                    break
+
+                for transfer in transfers:
+                    # Get both sender and receiver addresses
+                    from_addr = transfer.get("from_address")
+                    to_addr = transfer.get("to_address")
+
+                    if from_addr and from_addr != "11111111111111111111111111111111":
+                        traders.add(from_addr)
+                    if to_addr and to_addr != "11111111111111111111111111111111":
+                        traders.add(to_addr)
+
+                # Check if there are more pages
+                if len(transfers) < 100:
+                    break
+
+                page += 1
+                # Rate limit: small delay between requests
+                await asyncio.sleep(0.1)
+
+            except SolscanError as e:
+                logger.warning(f"Error fetching transfers page {page} for {token_address}: {e}")
+                break
+
+        logger.info(f"Found {len(traders)} unique traders for {token_address} across {page} pages")
+        return traders
 
     async def get_account_detail(self, address: str) -> AccountDetail:
         """

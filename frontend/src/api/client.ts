@@ -64,45 +64,47 @@ export async function getWalletStats(
   return data;
 }
 
-// Cross-checker
+// Cross-checker (traders-based)
+export interface TokenInput {
+  address: string;
+  from_time?: number;  // Unix timestamp (seconds)
+  to_time?: number;    // Unix timestamp (seconds)
+}
+
 export interface CrossCheckerResult {
   common_wallets: {
     wallet_address: string;
-    holdings: Record<string, {
+    tokens_traded: Record<string, {
       token_name: string;
-      raw_amount: number;
-      adjusted_amount: number;
-      rank: number;
+      traded: boolean;
     }>;
-    tokens_held: number;
   }[];
   tokens: {
     address: string;
     name: string;
     decimals: number;
-    holders_fetched: number;
+    traders_found: number;
+    from_time: number | null;
+    to_time: number | null;
   }[];
   total_common: number;
   query: {
     token_count: number;
-    max_holders_per_token: number;
-    min_usd_value: number | null;
+    max_pages_per_token: number;
   };
 }
 
 export async function crossCheckWallets(
-  tokenAddresses: string[],
+  tokens: TokenInput[],
   options?: {
-    minUsdValue?: number;
-    maxHoldersPerToken?: number;
+    maxPagesPerToken?: number;
   }
 ): Promise<CrossCheckerResult> {
   const { data } = await api.post('/cross-checker', {
-    token_addresses: tokenAddresses,
-    min_usd_value: options?.minUsdValue,
-    max_holders_per_token: options?.maxHoldersPerToken ?? 1000,
+    tokens,
+    max_pages_per_token: options?.maxPagesPerToken ?? 50,
   }, {
-    timeout: 120000, // 2 minute timeout for this heavy operation
+    timeout: 300000, // 5 minute timeout for this heavy operation
   });
   return data;
 }
