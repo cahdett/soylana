@@ -133,17 +133,29 @@ class SolscanClient:
         Returns:
             Transfer history
         """
-        params = {
-            "address": token_address,
-            "page": page,
-            "page_size": min(page_size, 100),
-            "sort_by": sort_by,
-            "sort_order": sort_order,
-        }
-        if from_time is not None:
-            params["block_time[]"] = from_time
-        if to_time is not None:
-            params["block_time[]="] = to_time
+        # Build params as list of tuples to support multiple block_time[] values
+        params = [
+            ("address", token_address),
+            ("page", page),
+            ("page_size", min(page_size, 100)),
+            ("sort_by", sort_by),
+            ("sort_order", sort_order),
+        ]
+
+        # Add time range filter if specified (both must be provided for range)
+        if from_time is not None and to_time is not None:
+            params.append(("block_time[]", from_time))
+            params.append(("block_time[]", to_time))
+        elif from_time is not None:
+            # Only start time - get from this time onwards
+            params.append(("block_time[]", from_time))
+            params.append(("block_time[]", 9999999999))  # Far future
+        elif to_time is not None:
+            # Only end time - get up to this time
+            params.append(("block_time[]", 0))
+            params.append(("block_time[]", to_time))
+
+        logger.debug(f"Fetching transfers for {token_address}, page {page}, params: {params}")
 
         data = await self._request(
             "GET",
@@ -173,6 +185,10 @@ class SolscanClient:
         """
         traders: Set[str] = set()
         page = 1
+        total_transfers = 0
+
+        logger.info(f"Starting to fetch traders for {token_address}")
+        logger.info(f"  Time range: {from_time} to {to_time}")
 
         while page <= max_pages:
             try:
@@ -184,9 +200,23 @@ class SolscanClient:
                     to_time=to_time,
                 )
 
+                # Log raw response structure for debugging
+                if page == 1:
+                    logger.info(f"  API response keys: {data.keys() if isinstance(data, dict) else type(data)}")
+                    logger.info(f"  Success: {data.get('success', 'N/A')}")
+
                 transfers = data.get("data", [])
+
+                if page == 1:
+                    logger.info(f"  First page has {len(transfers)} transfers")
+                    if transfers and len(transfers) > 0:
+                        logger.info(f"  Sample transfer keys: {transfers[0].keys() if isinstance(transfers[0], dict) else 'N/A'}")
+
                 if not transfers:
+                    logger.info(f"  No transfers found on page {page}, stopping")
                     break
+
+                total_transfers += len(transfers)
 
                 for transfer in transfers:
                     # Get both sender and receiver addresses
@@ -200,6 +230,7 @@ class SolscanClient:
 
                 # Check if there are more pages
                 if len(transfers) < 100:
+                    logger.info(f"  Got {len(transfers)} transfers (< 100), stopping pagination")
                     break
 
                 page += 1
@@ -209,8 +240,11 @@ class SolscanClient:
             except SolscanError as e:
                 logger.warning(f"Error fetching transfers page {page} for {token_address}: {e}")
                 break
+            except Exception as e:
+                logger.error(f"Unexpected error fetching transfers page {page} for {token_address}: {e}", exc_info=True)
+                break
 
-        logger.info(f"Found {len(traders)} unique traders for {token_address} across {page} pages")
+        logger.info(f"Found {len(traders)} unique traders for {token_address} across {page} pages ({total_transfers} total transfers)")
         return traders
 
     async def get_account_detail(self, address: str) -> AccountDetail:

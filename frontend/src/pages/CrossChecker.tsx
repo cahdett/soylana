@@ -83,9 +83,16 @@ export function CrossChecker() {
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
   };
 
-  const formatDate = (timestamp: number | null): string => {
+  const formatDateTime = (timestamp: number | null): string => {
     if (!timestamp) return 'All time';
-    return new Date(timestamp * 1000).toLocaleDateString();
+    const date = new Date(timestamp * 1000);
+    return date.toLocaleString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
   };
 
   return (
@@ -141,12 +148,12 @@ export function CrossChecker() {
                         />
                       </div>
 
-                      {/* Date Range */}
+                      {/* DateTime Range */}
                       <div className="flex flex-wrap gap-3">
                         <div className="flex items-center gap-2">
                           <label className="text-sm text-gray-400 whitespace-nowrap">From:</label>
                           <input
-                            type="date"
+                            type="datetime-local"
                             value={token.fromDate}
                             onChange={(e) => updateToken(token.id, 'fromDate', e.target.value)}
                             className="px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white text-sm focus:outline-none focus:border-purple-500"
@@ -155,7 +162,7 @@ export function CrossChecker() {
                         <div className="flex items-center gap-2">
                           <label className="text-sm text-gray-400 whitespace-nowrap">To:</label>
                           <input
-                            type="date"
+                            type="datetime-local"
                             value={token.toDate}
                             onChange={(e) => updateToken(token.id, 'toDate', e.target.value)}
                             className="px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white text-sm focus:outline-none focus:border-purple-500"
@@ -259,7 +266,7 @@ export function CrossChecker() {
                     <div className="flex items-center gap-4 text-gray-400">
                       <span>{token.traders_found.toLocaleString()} traders</span>
                       <span>
-                        {formatDate(token.from_time)} - {formatDate(token.to_time)}
+                        {formatDateTime(token.from_time)} - {formatDateTime(token.to_time)}
                       </span>
                     </div>
                   </div>
